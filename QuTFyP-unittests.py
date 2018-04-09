@@ -166,7 +166,7 @@ Indeces, TransmonQED.Hint_d2, Check value:
                         #print (np.abs(Hint_rho_result-Hint_rho_check_result))
                 fail_list_str = mask_to_str(fail_mask)
                 pass_list_str = mask_to_str(pass_mask)
-                assert np.sum(np.abs(H_rho_result-H_rho_check_result))<np.sum(np.abs(H_rho_check_result))*1e-6, '''{0}_d2 failed check against {0} @ random time {1}.
+                assert np.sum(np.abs(H_rho_result-H_rho_check_result))<np.sum(np.abs(H_rho_check_result))*1e-4, '''{0}_d2 failed check against {0} @ random time {1}.
 Indeces, {0}_d2, {0} value:
 '''.format(f_pair[2], _t)+fail_list_str+'Passed check:\nIndeces, {0}_d2, {0}:\n'.format(f_pair[2], _t)+pass_list_str
 
@@ -227,9 +227,9 @@ Indeces, {0}_d2, {0} value:
                     #              'window_stop':7., 
                     #'observable_vec': lambda x: self.qed.observable(tf.real(tf.conj(x)*self.qed.am(x, ax=0))),
                     #'observable_mat': lambda x: self.qed.observable(tf.real(self.am_d2(x, ax=0)), mode='mat') },
-                                  'qubit_z': {'resample':False,
-                    'observable_vec': lambda x: self.qed.observable(tf.real(tf.conj(x)*self.qed.multipliers_sqr_real[0])),
-                    'observable_mat': lambda x: self.qed.observable(tf.real(self.qed.multipliers_sqr_real[0]*x), mode='mat') } }
+                                  'qubit_z': {'unmix':False,
+                    'observable_vec': lambda x,t: self.qed.observable(tf.real(tf.conj(x)*self.qed.multipliers_sqr_real[0])),
+                    'observable_mat': lambda x,t: self.qed.observable(tf.real(self.qed.multipliers_sqr_real[0]*x), mode='mat') } }
         
         f2 = np.linspace(6, 7, 2)
         a2 = np.linspace(1, 2, 2)
@@ -251,10 +251,10 @@ Indeces, {0}_d2, {0} value:
         # unitary evolution 
         self.qed.simulation_time = 0.2
         self.qed.dt = 0.001
-        expectations_vec = self.qed.run('vec')
+        expectations_vec, measurements_vec  = self.qed.run('vec')
         expectations_mat = self.qed.run('mat_pure')
-        expect_diff = np.sum(np.abs(expectations_vec-expectations_mat))
-        expect_avg = np.sum(np.abs(expectations_vec))
+        expect_diff = np.sum([np.sum(np.abs(exp_vec-expectations_mat[exp_name])) for exp_name, exp_vec in expectations_vec.items()])
+        expect_avg = np.sum([np.sum(np.abs(exp_vec)) for exp_name, exp_vec in expectations_vec.items()])
         print('Expectation rel error: {}'.format(expect_diff/expect_avg))
         #print (expectations_vec)
         
@@ -273,8 +273,8 @@ Indeces, {0}_d2, {0} value:
                     #'observable_vec': lambda x: self.qed.observable(tf.real(tf.conj(x)*self.qed.am(x, ax=0))),
                     #'observable_mat': lambda x: self.qed.observable(tf.real(self.am_d2(x, ax=0)), mode='mat') },
                                   'qubit_z': {'resample':False,
-                    'observable_vec': lambda x: self.qed.observable(tf.real(tf.conj(x)*self.qed.multipliers_sqr_real[0])),
-                    'observable_mat': lambda x: self.qed.observable(tf.real(self.qed.multipliers_sqr_real[0]*x), mode='mat') } }
+                    'observable_vec': lambda x,t: self.qed.observable(tf.real(tf.conj(x)*self.qed.multipliers_sqr_real[0])),
+                    'observable_mat': lambda x,t: self.qed.observable(tf.real(self.qed.multipliers_sqr_real[0]*x), mode='mat') } }
         
         f2 = np.linspace(6, 7, 2)
         a2 = np.linspace(1, 2, 2)
@@ -298,7 +298,7 @@ Indeces, {0}_d2, {0} value:
         self.qed.dt = 0.001
         with tf.Session() as sess:
             sess.run(psi.initializer)
-            print(sess.run(self.qed.calc_expectations(psi)))
+            print(sess.run(self.qed.calc_expectations(psi, 0.0)))
         #expectations_vec = self.qed.run('vec')
         #expectations_mat = self.qed.run('mat_pure')
         #expect_diff = np.sum(np.abs(expectations_vec-expectations_mat))
@@ -318,42 +318,28 @@ Indeces, {0}_d2, {0} value:
                                   'rate':2.0,
                                   'subsystem_id':0,
                                   'record':True,
-                                  'resample':True,
-                                  'window_start':0.,
-                                  'window_stop':2.}}
+                                  'unmix':False}}
         self.qed.initialize_operators()
         self.qed.controls = {}
         self.qed.minibatch = 50 # number of time steps with a single noise sample and without resampling
         self.qed.expectations = { 'qubit_x': {'unmix':False,
-                                  'window_start':5., 
-                                  'window_stop':7., 
-                    'observable_vec': lambda x: self.qed.observable(tf.real(tf.conj(x)*self.qed.am(x, ax=0))),
-                    'observable_mat': lambda x: self.qed.observable(tf.real(self.qed.am_d2(x, ax=0)), mode='mat') },
+                    'observable_vec': lambda x,t: self.qed.observable(tf.real(tf.conj(x)*self.qed.am(x, ax=0))),
+                    'observable_mat': lambda x,t: self.qed.observable(tf.real(self.qed.am_d2(x, ax=0)), mode='mat') },
                                   'qubit_y': {'unmix':False,
-                                  'window_start':5., 
-                                  'window_stop':7., 
-                    'observable_vec': lambda x: self.qed.observable(tf.imag(tf.conj(x)*self.qed.am(x, ax=0))),
-                    'observable_mat': lambda x: self.qed.observable(tf.imag(self.qed.am_d2(x, ax=0)), mode='mat') },
+                    'observable_vec': lambda x,t: self.qed.observable(tf.imag(tf.conj(x)*self.qed.am(x, ax=0))),
+                    'observable_mat': lambda x,t: self.qed.observable(tf.imag(self.qed.am_d2(x, ax=0)), mode='mat') },
                                   'qubit_z': {'unmix':False,
-                                  'window_start':0., 
-                                  'window_stop':2.,
-                    'observable_vec': lambda x: self.qed.observable(tf.real(tf.conj(x)*x*self.qed.multipliers_sqr_real[0])),
-                    'observable_mat': lambda x: self.qed.observable(tf.real(self.qed.multipliers_sqr_real[0]*x), mode='mat') },
+                    'observable_vec': lambda x,t: self.qed.observable(tf.real(tf.conj(x)*x*self.qed.multipliers_sqr_real[0])),
+                    'observable_mat': lambda x,t: self.qed.observable(tf.real(self.qed.multipliers_sqr_real[0]*x), mode='mat') },
                                   'resonator_x': {'unmix':False,
-                                  'window_start':8.5,
-                                  'window_stop':10.5, 
-                    'observable_vec': lambda x: self.qed.observable(tf.real(tf.conj(x)*self.qed.am(x, ax=1))),
-                    'observable_mat': lambda x: self.qed.observable(tf.real(self.qed.am_d2(x, ax=1)), mode='mat') },
+                    'observable_vec': lambda x,t: self.qed.observable(tf.real(tf.conj(x)*self.qed.am(x, ax=1))),
+                    'observable_mat': lambda x,t: self.qed.observable(tf.real(self.qed.am_d2(x, ax=1)), mode='mat') },
                                   'resonator_y': {'unmix':False,
-                                  'window_start':8.5,
-                                  'window_stop':10.5, 
-                    'observable_vec': lambda x: self.qed.observable(tf.imag(tf.conj(x)*self.qed.am(x, ax=1))),
-                    'observable_mat': lambda x: self.qed.observable(tf.imag(self.qed.am_d2(x, ax=1)), mode='mat') },
+                    'observable_vec': lambda x,t: self.qed.observable(tf.imag(tf.conj(x)*self.qed.am(x, ax=1))),
+                    'observable_mat': lambda x,t: self.qed.observable(tf.imag(self.qed.am_d2(x, ax=1)), mode='mat') },
                                   'resonator_z': {'unmix':False,
-                                  'window_start':0,
-                                  'window_stop':2,
-                    'observable_vec': lambda x: self.qed.observable(tf.real(tf.conj(x)*x*self.qed.multipliers_sqr_real[1])),
-                    'observable_mat': lambda x: self.qed.observable(tf.real(self.qed.multipliers_sqr_real[1]*x), mode='mat') }}
+                    'observable_vec': lambda x,t: self.qed.observable(tf.real(tf.conj(x)*x*self.qed.multipliers_sqr_real[1])),
+                    'observable_mat': lambda x,t: self.qed.observable(tf.real(self.qed.multipliers_sqr_real[1]*x), mode='mat') }}
 
         gi = [[1,0,i] for i in range(self.qed.ntraj)]  # A list of coordinates to update.
         gv = [1.0]*self.qed.ntraj  # A list of values corresponding to the respective
@@ -398,49 +384,42 @@ Indeces, {0}_d2, {0} value:
                                   'rate':2.0,
                                   'subsystem_id':0,
                                   'record':True,
-                                  'unmix':False,
-                                  'unmix_quad'='I'
+                                  'unmix':True,
                                   'unmix_reference':0.,
                                   'sample_rate':2.}}
         self.qed.initialize_operators()
         self.qed.controls = {}
         self.qed.minibatch = 50 # number of time steps with a single noise sample and without resampling
         self.qed.expectations = { 'qubit_x': {'unmix':True,
-                                  'unmix_quad':5., 
-                                  'unmix_reference':0., 
-                                  'sample_rate':1.,
-                    'observable_vec': lambda x: self.qed.observable(tf.real(tf.conj(x)*self.qed.am(x, ax=0))),
-                    'observable_mat': lambda x: self.qed.observable(tf.real(self.qed.am_d2(x, ax=0)), mode='mat') },
+                                  'unmix_reference':6., 
+                                  'sample_rate':2.,
+                    'observable_vec': lambda x,t: self.qed.observable(tf.real(tf.conj(x)*self.qed.am(x, ax=0))),
+                    'observable_mat': lambda x,t: self.qed.observable(tf.real(self.qed.am_d2(x, ax=0)), mode='mat') },
                                   'qubit_y': {'unmix':True,
-                                  'window_start':5., 
-                                  'window_stop':7., 
-                    'observable_vec': lambda x: self.qed.observable(tf.imag(tf.conj(x)*self.qed.am(x, ax=0))),
-                    'observable_mat': lambda x: self.qed.observable(tf.imag(self.qed.am_d2(x, ax=0)), mode='mat') },
+                                  'unmix_reference':6., 
+                                  'sample_rate':2.,
+                    'observable_vec': lambda x,t: self.qed.observable(tf.imag(tf.conj(x)*self.qed.am(x, ax=0))),
+                    'observable_mat': lambda x,t: self.qed.observable(tf.imag(self.qed.am_d2(x, ax=0)), mode='mat') },
                                   'qubit_z': {'unmix':True,
-                                  'window_start':0., 
-                                  'window_stop':2.,
-                    'observable_vec': lambda x: self.qed.observable(tf.real(tf.conj(x)*x*self.qed.multipliers_sqr_real[0])),
-                    'observable_mat': lambda x: self.qed.observable(tf.real(self.qed.multipliers_sqr_real[0]*x), mode='mat') },
-                                  'qubit_z_high': {'unmix':False,
-                                  'window_start':0., 
-                                  'window_stop':2.,
-                    'observable_vec': lambda x: self.qed.observable(tf.real(tf.conj(x)*x*self.qed.multipliers_sqr_real[0])),
-                    'observable_mat': lambda x: self.qed.observable(tf.real(self.qed.multipliers_sqr_real[0]*x), mode='mat') },
+                                  'unmix_reference':0., 
+                                  'sample_rate':2.,
+                    'observable_vec': lambda x,t: self.qed.observable(tf.real(tf.conj(x)*x*self.qed.multipliers_sqr_real[0])),
+                    'observable_mat': lambda x,t: self.qed.observable(tf.real(self.qed.multipliers_sqr_real[0]*x), mode='mat') },
                                   'resonator_x': {'unmix':True,
-                                  'window_start':8.5,
-                                  'window_stop':10.5, 
-                    'observable_vec': lambda x: self.qed.observable(tf.real(tf.conj(x)*self.qed.am(x, ax=1))),
-                    'observable_mat': lambda x: self.qed.observable(tf.real(self.qed.am_d2(x, ax=1)), mode='mat') },
+                                  'unmix_reference':9.5, 
+                                  'sample_rate':2.,
+                    'observable_vec': lambda x,t: self.qed.observable(tf.real(tf.conj(x)*self.qed.am(x, ax=1))),
+                    'observable_mat': lambda x,t: self.qed.observable(tf.real(self.qed.am_d2(x, ax=1)), mode='mat') },
                                   'resonator_y': {'unmix':True,
-                                  'window_start':8.5,
-                                  'window_stop':10.5, 
-                    'observable_vec': lambda x: self.qed.observable(tf.imag(tf.conj(x)*self.qed.am(x, ax=1))),
-                    'observable_mat': lambda x: self.qed.observable(tf.imag(self.qed.am_d2(x, ax=1)), mode='mat') },
+                                  'unmix_reference':9.5, 
+                                  'sample_rate':2.,
+                    'observable_vec': lambda x,t: self.qed.observable(tf.imag(tf.conj(x)*self.qed.am(x, ax=1))),
+                    'observable_mat': lambda x,t: self.qed.observable(tf.imag(self.qed.am_d2(x, ax=1)), mode='mat') },
                                   'resonator_z': {'unmix':True,
-                                  'window_start':0,
-                                  'window_stop':2,
-                    'observable_vec': lambda x: self.qed.observable(tf.real(tf.conj(x)*x*self.qed.multipliers_sqr_real[1])),
-                    'observable_mat': lambda x: self.qed.observable(tf.real(self.qed.multipliers_sqr_real[1]*x), mode='mat') }}
+                                  'unmix_reference':0., 
+                                  'sample_rate':2.,
+                    'observable_vec': lambda x,t: self.qed.observable(tf.real(tf.conj(x)*x*self.qed.multipliers_sqr_real[1])),
+                    'observable_mat': lambda x,t: self.qed.observable(tf.real(self.qed.multipliers_sqr_real[1]*x), mode='mat') }}
 
         gi = [[1,0,i] for i in range(self.qed.ntraj)]  # A list of coordinates to update.
         gv = [1.0]*self.qed.ntraj  # A list of values corresponding to the respective
@@ -464,9 +443,6 @@ Indeces, {0}_d2, {0} value:
         plot(np.mean(expectations_vec['qubit_z'], axis=1).T, label='Jumps <n>')
         plot(np.mean(expectations_mat['qubit_z'], axis=1).T, label='ME <n>')
         plot(np.mean(expectations_vec_homodyne['qubit_z'], axis=1).T, label='Homodyne <n>')
-        plot(np.mean(expectations_vec['qubit_z_high'], axis=1).T, label='Jumps <n> high-res')
-        plot(np.mean(expectations_mat['qubit_z_high'], axis=1).T, label='ME <n> high-res')
-        plot(np.mean(expectations_vec_homodyne['qubit_z_high'], axis=1).T, label='Homodyne <n> high-res')
         plot(np.mean(expectations_vec['qubit_x'], axis=1).T, label='Jumps Re{<a>}')
         plot(np.mean(expectations_mat['qubit_x'], axis=1).T, label='ME Re{<a>}')
         plot(np.mean(expectations_vec_homodyne['qubit_x'], axis=1).T, label='Homodyne Re{<a>}')

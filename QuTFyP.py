@@ -73,6 +73,14 @@ class TransmonQED:
     def ap_d2(self, x, ax):
         return self.ap(x, ax, t='mat')
     
+    def am_td_expect(self, x, t, ax):
+        anh1_shape = [1]*len(x.shape)
+        anh1_shape[ax] = self.d[ax]
+        anh1m = tf.reshape(self.anharmonicities[ax]*tf.range(0,self.d[ax], dtype=self.rdtype),   anh1_shape)
+        phase1m = tf.exp(-2*pi*1j*tf.cast(self.frequencies[ax]+anh1m, self.cdtype)*tf.cast(t, self.cdtype))
+        return self.observable(tf.conj(x)*(self.am(x, ax=0)*phase1m))*2
+        
+    
     def Hint(self,x, t):
     # Jaynes-Cummings hamiltonian (part of the Hamiltonian acting upon a ket)
         y = tf.zeros(x.shape, dtype=x.dtype)
@@ -253,13 +261,13 @@ class TransmonQED:
             o = tf.trace(tf.transpose(self.dof_ravel(x, mode='mat'), [2, 0, 1]))
         return o
     
-    def calc_expectations(self, x, mode='vec'):
+    def calc_expectations(self, x, t, mode='vec'):
         expectations = {}
         for name, exp in self.expectations.items():
             if mode=='vec':
-                expectations[name] = exp['observable_vec'](x)
+                expectations[name] = exp['observable_vec'](x,t)
             else:
-                expectations[name] = exp['observable_mat'](x)
+                expectations[name] = exp['observable_mat'](x,t)
         return expectations
     
     # old expectation code: measure all single-particle observables, no downsampling, result in tf tensor
@@ -323,6 +331,7 @@ class TransmonQED:
         J = {}
         for decoherence_id, decoherence in self.decoherences.items():
             if decoherence['measurement_type'] == 'homodyne':
+                print ('homodyne')
                 if decoherence['coupling_type'] == 'a':
                     rate = decoherence['rate']
                     subsystem_id = decoherence['subsystem_id']
@@ -371,7 +380,7 @@ class TransmonQED:
         
         # old expectation code
         #expectations = self.old_expect_sp(x, mode=mode)
-        expectations = self.calc_expectations(x, mode=mode)
+        expectations = self.calc_expectations(x, t,  mode=mode)
 
         # check if random jump occurs
         # uncomment if homodyne detection is off
@@ -429,24 +438,39 @@ class TransmonQED:
             self.cdtype = o['cdtype']
     
     def downsampled_minibatch_shape(self, measurement):
-        if measurement['resample']:
-            freqs = numpy.fft.fftfreq(self.minibatch, self.dt)
+        if measurement['unmix']:
+            #freqs = numpy.fft.fftfreq(self.minibatch, self.dt)
             #print('fftfreqs: ', freqs)
-            nonzero_freqs = numpy.logical_or(numpy.logical_and(freqs>=measurement['window_start'], freqs<=measurement['window_stop']),
-                                             numpy.logical_and(freqs>=-measurement['window_start'], freqs>=-measurement['window_stop']))
+            #nonzero_freqs = numpy.logical_or(numpy.logical_and(freqs>=measurement['window_start'], freqs<=measurement['window_stop']),
+            #                                 numpy.logical_and(freqs>=-measurement['window_start'], freqs>=-measurement['window_stop']))
             #print (numpy.sum(nonzero_freqs), len(nonzero_freqs))
-            return numpy.sum(nonzero_freqs)
+            #return numpy.sum(nonzero_freqs)
+            
+            # current sample rate:
+            old_sample_period = self.dt
+            new_sample_period = 1/measurement['sample_rate']
+            
+            average_size = int(new_sample_period/old_sample_period)
+            
+            return int(self.minibatch/average_size)
         return self.minibatch
         
-    def downsample(self, measurement, upsampled):
-        if measurement['resample']:
-            freqs = numpy.fft.fftfreq(self.minibatch, self.dt)
-            nonzero_freqs = numpy.logical_or(numpy.logical_and(freqs>=measurement['window_start'], freqs<=measurement['window_stop']),
-                                             numpy.logical_and(freqs>=-measurement['window_start'], freqs>=-measurement['window_stop']))
-            downsampled = numpy.fft.ifft(numpy.fft.fft(upsampled, axis=0, norm=None)[nonzero_freqs,:]/numpy.sqrt(self.minibatch), axis=0, norm=None)*numpy.sqrt(sum(nonzero_freqs))
-            print (downsampled.shape, upsampled.shape)
-            return downsampled
-        return upsampled
+    def downsample(self, measurement, rf, t):
+        if measurement['unmix']:
+            time_rf = numpy.reshape(numpy.arange(self.minibatch)*self.dt+t, (self.minibatch, 1))
+            prod = (rf * numpy.exp(2*numpy.pi*1j*measurement['unmix_reference']*time_rf)).T
+            #print (prod.shape)
+            iq_cmplx = numpy.mean(numpy.reshape(prod, (self.ntraj, int(self.minibatch*(self.dt*measurement['sample_rate'])), 
+                                                       int(1/(self.dt*measurement['sample_rate'])))), axis=2).T
+            
+            #freqs = numpy.fft.fftfreq(self.minibatch, self.dt)
+            #nonzero_freqs = numpy.logical_or(numpy.logical_and(freqs>=measurement['window_start'], freqs<=measurement['window_stop']),
+            #                                 numpy.logical_and(freqs>=-measurement['window_start'], freqs>=-measurement['window_stop']))
+            #downsampled = numpy.fft.ifft(numpy.fft.fft(upsampled, axis=0, norm=None)[nonzero_freqs,:]/numpy.sqrt(self.minibatch), axis=0, norm=None)*numpy.sqrt(sum(nonzero_freqs))
+            #print (downsampled.shape, upsampled.shape)
+            #return downsampled
+            return iq_cmplx
+        return rf
     
     def run(self, mode='vec', interactive=False):
         sess = tf.Session()
@@ -454,13 +478,15 @@ class TransmonQED:
         tsteps = numpy.arange(0, self.simulation_time, self.dt, dtype=self.rdtype_np)
         #expectations = numpy.zeros((len(self.d)*3, len(tsteps), self.ntraj), dtype=self.rdtype_np)
         expectations = {expectation_name: numpy.zeros((int(self.downsampled_minibatch_shape(self.expectations[expectation_name])*len(tsteps)/self.minibatch), self.ntraj), 
-                                dtype=self.rdtype_np) for expectation_name in self.expectations }
+                                dtype=(self.cdtype_np if self.expectations[expectation_name]['unmix'] else self.rdtype_np)) 
+                                for expectation_name in self.expectations }
         expectations_minibatch = {expectation_name:  numpy.zeros((self.minibatch, self.ntraj), dtype=self.rdtype_np) 
                         for expectation_name in self.expectations }
         
         if mode != 'mat':
             measurements = {measurement_name: numpy.zeros((int(self.downsampled_minibatch_shape(self.decoherences[measurement_name])*len(tsteps)/self.minibatch), self.ntraj), 
-                                         dtype=self.rdtype_np) for measurement_name in self.decoherences.keys() }
+                                dtype=(self.cdtype_np if self.decoherences[measurement_name]['unmix'] else self.rdtype_np)) 
+                                for measurement_name in self.decoherences.keys() }
             measurements_minibatch = {measurement_name: numpy.zeros((self.minibatch, self.ntraj), dtype=self.rdtype_np) 
                             for measurement_name in self.decoherences }
         
@@ -548,13 +574,13 @@ class TransmonQED:
                         #           (t_id//self.minibatch+1)*downsampled_size)
                         measurements[measurement_name][(t_id//self.minibatch)*downsampled_size:\
                                                        ((t_id//self.minibatch)+1)*downsampled_size,:] = \
-                            self.downsample(measurement, measurements_minibatch[measurement_name])
+                            self.downsample(measurement, measurements_minibatch[measurement_name], tit-self.dt*self.minibatch)
                         pass
                 for expectation_name, expectation in self.expectations.items():
                     downsampled_size = self.downsampled_minibatch_shape(expectation)
                     expectations[expectation_name][(t_id//self.minibatch)*downsampled_size:\
                                                        ((t_id//self.minibatch)+1)*downsampled_size,:] = \
-                        self.downsample(expectation, expectations_minibatch[expectation_name])
+                        self.downsample(expectation, expectations_minibatch[expectation_name], tit-self.dt*self.minibatch)
                     pass
             #if mode != 'mat' and mode != 'mat_pure':
             #    print (numpy.sum(numpy.sum(numpy.abs(psi_new)**2, axis=0), axis=1))
@@ -568,7 +594,6 @@ class TransmonQED:
             #print (psi_new)
         sess.close()
         if mode != 'mat' and mode != 'mat_pure':
-            print (expectations['qubit_x'].shape)
             return  expectations, measurements#{k:v for k,v in zip(self.expectation_fetch_order, expectations)}, \
                     #{k:v for k,v in zip(self.measurement_fetch_order, measurements)}
         else:
