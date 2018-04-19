@@ -2,6 +2,10 @@ import tensorflow as tf
 import tensorflow.contrib.metrics
 import numpy
 from math import pi
+try:
+    from tqdm import tqdm
+except:
+    tqdm = lambda x: x
 
 class TransmonQED:
         # system dynamics in terms of tensorflow functions
@@ -73,12 +77,27 @@ class TransmonQED:
     def ap_d2(self, x, ax):
         return self.ap(x, ax, t='mat')
     
-    def am_td_expect(self, x, t, ax):
+    def am_td_expect(self, x, t, ax, mode='vec'):
         anh1_shape = [1]*len(x.shape)
         anh1_shape[ax] = self.d[ax]
-        anh1m = tf.reshape(self.anharmonicities[ax]*tf.range(0,self.d[ax], dtype=self.rdtype),   anh1_shape)
-        phase1m = tf.exp(-2*pi*1j*tf.cast(self.frequencies[ax]+anh1m, self.cdtype)*tf.cast(t, self.cdtype))
-        return self.observable(tf.conj(x)*(self.am(x, ax=0)*phase1m))*2
+        transition_frequencies = self.frequencies[ax]+self.anharmonicities[ax]*tf.range(0,self.d[ax], dtype=self.rdtype)
+        #state_frequencies = tf.cumsum(transition_frequencies)
+        #if mode=='vec':
+        anh1m = tf.reshape(transition_frequencies, anh1_shape)
+        phase1m = tf.exp(-1j*tf.cast(anh1m, self.cdtype)*tf.cast(t, self.cdtype))
+        if mode=='vec':  
+            return self.observable(tf.conj(x)*(self.am(x, ax=ax)*phase1m))*2
+        else:
+            #anh1m = tf.reshape(state_frequencies, anh1_shape)
+            #phase1m = tf.exp(-1j*tf.cast(anh1m, self.cdtype)*tf.cast(t, self.cdtype))
+            #anh1t_shape = [1]*len(x.shape)
+            #anh1t_shape[ax+len(self.d)] = self.d[ax]
+            #print (anh1t_shape, anh1_shape)
+            #anh1tm = tf.reshape(state_frequencies,   anh1t_shape)
+            #phase1tm = tf.exp(1j*tf.cast(anh1tm, self.cdtype)*tf.cast(t, self.cdtype))
+            
+            #return self.observable(self.am_d2(x, ax=ax)*phase1m*phase1tm, mode='mat')
+            return self.observable(self.am_d2(x, ax=ax)*phase1m, mode='mat')*2
         
     
     def Hint(self,x, t):
@@ -89,8 +108,8 @@ class TransmonQED:
             anh1_shape[d1] = self.d[d1]
             anh1p = tf.reshape(self.anharmonicities[d1]*tf.range(-1,self.d[d1]-1, dtype=self.rdtype), anh1_shape)
             anh1m = tf.reshape(self.anharmonicities[d1]*tf.range(0,self.d[d1], dtype=self.rdtype),   anh1_shape)
-            phase1p = tf.exp(2*pi*1j*tf.cast(self.frequencies[d1]+anh1p, self.cdtype)*tf.cast(t, self.cdtype))
-            phase1m = tf.exp(-2*pi*1j*tf.cast(self.frequencies[d1]+anh1m, self.cdtype)*tf.cast(t, self.cdtype))
+            phase1p = tf.exp(1j*tf.cast(self.frequencies[d1]+anh1p, self.cdtype)*tf.cast(t, self.cdtype))
+            phase1m = tf.exp(-1j*tf.cast(self.frequencies[d1]+anh1m, self.cdtype)*tf.cast(t, self.cdtype))
             ap1 = self.ap(x, ax=d1)*phase1p
             am1 = self.am(x, ax=d1)*phase1m
             for d2 in range(d1+1,len(self.d)):
@@ -98,8 +117,10 @@ class TransmonQED:
                 anh2_shape[d2] = self.d[d2]
                 anh2p = tf.reshape(self.anharmonicities[d2]*tf.range(-1,self.d[d2]-1, dtype=self.rdtype), anh2_shape)
                 anh2m = tf.reshape(self.anharmonicities[d2]*tf.range(0,self.d[d2], dtype=self.rdtype),   anh2_shape)
-                phase2p = tf.exp(2*pi*1j*tf.cast(self.frequencies[d2]+anh2p, self.cdtype)*tf.cast(t, self.cdtype))
-                phase2m = tf.exp(-2*pi*1j*tf.cast(self.frequencies[d2]+anh2m, self.cdtype)*tf.cast(t, self.cdtype))
+                #phase2p = tf.exp(2*pi*1j*tf.cast(self.frequencies[d2]+anh2p, self.cdtype)*tf.cast(t, self.cdtype))
+                #phase2m = tf.exp(-2*pi*1j*tf.cast(self.frequencies[d2]+anh2m, self.cdtype)*tf.cast(t, self.cdtype))
+                phase2p = tf.exp(1j*tf.cast(self.frequencies[d2]+anh2p, self.cdtype)*tf.cast(t, self.cdtype))
+                phase2m = tf.exp(-1j*tf.cast(self.frequencies[d2]+anh2m, self.cdtype)*tf.cast(t, self.cdtype))
                 s1 = self.couplings[d1][d2]*phase2p*self.ap(ap1+am1, ax=d2)
                 s2 = self.couplings[d1][d2]*phase2m*self.am(ap1+am1, ax=d2)
                 #s3 = self.couplings[d1][d2]*phase2p*self.ap(am1, ax=d2)
@@ -119,10 +140,10 @@ class TransmonQED:
             anh1m = tf.reshape(self.anharmonicities[d1]*tf.range(0,self.d[d1], dtype=self.rdtype),   anh1_shape)
             anh1tp = tf.reshape(self.anharmonicities[d1]*tf.range(-1,self.d[d1]-1, dtype=self.rdtype), anh1t_shape)
             anh1tm = tf.reshape(self.anharmonicities[d1]*tf.range(0,self.d[d1], dtype=self.rdtype),   anh1t_shape)
-            phase1p = tf.exp(2*pi*1j*tf.cast(self.frequencies[d1]+anh1p, self.cdtype)*tf.cast(t, self.cdtype))
-            phase1m = tf.exp(-2*pi*1j*tf.cast(self.frequencies[d1]+anh1m, self.cdtype)*tf.cast(t, self.cdtype))
-            phase1tp = tf.exp(-2*pi*1j*tf.cast(self.frequencies[d1]+anh1tp, self.cdtype)*tf.cast(t, self.cdtype))
-            phase1tm = tf.exp(2*pi*1j*tf.cast(self.frequencies[d1]+anh1tm, self.cdtype)*tf.cast(t, self.cdtype))
+            phase1p = tf.exp(1j*tf.cast(self.frequencies[d1]+anh1p, self.cdtype)*tf.cast(t, self.cdtype))
+            phase1m = tf.exp(-1j*tf.cast(self.frequencies[d1]+anh1m, self.cdtype)*tf.cast(t, self.cdtype))
+            phase1tp = tf.exp(-1j*tf.cast(self.frequencies[d1]+anh1tp, self.cdtype)*tf.cast(t, self.cdtype))
+            phase1tm = tf.exp(1j*tf.cast(self.frequencies[d1]+anh1tm, self.cdtype)*tf.cast(t, self.cdtype))
             # print (phase1p, phase1tp)
             ap1 = self.ap_d2(x, ax=d1)*phase1p
             am1 = self.am_d2(x, ax=d1)*phase1m
@@ -137,10 +158,10 @@ class TransmonQED:
                 anh2m = tf.reshape(self.anharmonicities[d2]*tf.range(0,self.d[d2], dtype=self.rdtype),   anh2_shape)
                 anh2tp = tf.reshape(self.anharmonicities[d2]*tf.range(-1,self.d[d2]-1, dtype=self.rdtype), anh2t_shape)
                 anh2tm = tf.reshape(self.anharmonicities[d2]*tf.range(0,self.d[d2], dtype=self.rdtype),   anh2t_shape)
-                phase2p = tf.exp(2*pi*1j*tf.cast(self.frequencies[d2]+anh2p, self.cdtype)*tf.cast(t, self.cdtype))
-                phase2m = tf.exp(-2*pi*1j*tf.cast(self.frequencies[d2]+anh2m, self.cdtype)*tf.cast(t, self.cdtype))
-                phase2tp = tf.exp(-2*pi*1j*tf.cast(self.frequencies[d2]+anh2tp, self.cdtype)*tf.cast(t, self.cdtype))
-                phase2tm = tf.exp(2*pi*1j*tf.cast(self.frequencies[d2]+anh2tm, self.cdtype)*tf.cast(t, self.cdtype))
+                phase2p = tf.exp(1j*tf.cast(self.frequencies[d2]+anh2p, self.cdtype)*tf.cast(t, self.cdtype))
+                phase2m = tf.exp(-1j*tf.cast(self.frequencies[d2]+anh2m, self.cdtype)*tf.cast(t, self.cdtype))
+                phase2tp = tf.exp(-1j*tf.cast(self.frequencies[d2]+anh2tp, self.cdtype)*tf.cast(t, self.cdtype))
+                phase2tm = tf.exp(1j*tf.cast(self.frequencies[d2]+anh2tm, self.cdtype)*tf.cast(t, self.cdtype))
                 s3 = self.couplings[d1][d2]*phase2p*self.ap_d2(am1+ap1, ax=d2)
                 s4 = self.couplings[d1][d2]*phase2m*self.am_d2(am1+ap1, ax=d2)
                 
@@ -156,15 +177,15 @@ class TransmonQED:
         # Rabi hamiltonian for external drive (action on ket)
         for cname, c in self.controls.items():
             envelope_value = tf.cast(c['envelope'](t), self.cdtype)
-            phase = tf.cast(tf.cos(2*pi*c['carrier']*t), self.cdtype)
+            phase = tf.cast(tf.cos(c['carrier']*t), self.cdtype)
             
             for subsystem_id, couplings in enumerate(c['coupling']):
                 anh_shape = [1]*len(x.shape)
                 anh_shape[subsystem_id] = self.d[subsystem_id]
                 anhp = tf.reshape(self.anharmonicities[subsystem_id]*tf.range(-1,self.d[subsystem_id]-1, dtype=self.rdtype), anh_shape)
                 anhm = tf.reshape(self.anharmonicities[subsystem_id]*tf.range(0,self.d[subsystem_id], dtype=self.rdtype),   anh_shape)
-                phasep = tf.exp(2*pi*1j*tf.cast(self.frequencies[subsystem_id]+anhp, self.cdtype)*tf.cast(t, self.cdtype))
-                phasem = tf.exp(-2*pi*1j*tf.cast(self.frequencies[subsystem_id]+anhm, self.cdtype)*tf.cast(t, self.cdtype))
+                phasep = tf.exp(1j*tf.cast(self.frequencies[subsystem_id]+anhp, self.cdtype)*tf.cast(t, self.cdtype))
+                phasem = tf.exp(-1j*tf.cast(self.frequencies[subsystem_id]+anhm, self.cdtype)*tf.cast(t, self.cdtype))
                 #phase_subsystem_p = tf.exp(2*pi*1j*tf.cast(frequencies[subsystem_id], cdtype)*tf.cast(t, cdtype))
                 for coupling_type, coupling in couplings.items():
                     coupling_cmplx = tf.cast(coupling, self.cdtype)
@@ -194,14 +215,14 @@ class TransmonQED:
                 anhm = tf.reshape(self.anharmonicities[subsystem_id]*tf.range(0,self.d[subsystem_id], dtype=self.rdtype),   anh_shape)
                 anhtp = tf.reshape(self.anharmonicities[subsystem_id]*tf.range(-1,self.d[subsystem_id]-1, dtype=self.rdtype), anht_shape)
                 anhtm = tf.reshape(self.anharmonicities[subsystem_id]*tf.range(0,self.d[subsystem_id], dtype=self.rdtype),   anht_shape)
-                phasep = tf.exp(2*pi*1j*tf.cast(self.frequencies[subsystem_id]+anhp, self.cdtype)*tf.cast(t, self.cdtype))
-                phasem = tf.exp(-2*pi*1j*tf.cast(self.frequencies[subsystem_id]+anhm, self.cdtype)*tf.cast(t, self.cdtype))
-                phasetp = tf.exp(-2*pi*1j*tf.cast(self.frequencies[subsystem_id]+anhtp, self.cdtype)*tf.cast(t, self.cdtype))
-                phasetm = tf.exp(2*pi*1j*tf.cast(self.frequencies[subsystem_id]+anhtm, self.cdtype)*tf.cast(t, self.cdtype))
+                phasep = tf.exp(1j*tf.cast(self.frequencies[subsystem_id]+anhp, self.cdtype)*tf.cast(t, self.cdtype))
+                phasem = tf.exp(-1j*tf.cast(self.frequencies[subsystem_id]+anhm, self.cdtype)*tf.cast(t, self.cdtype))
+                phasetp = tf.exp(-1j*tf.cast(self.frequencies[subsystem_id]+anhtp, self.cdtype)*tf.cast(t, self.cdtype))
+                phasetm = tf.exp(1j*tf.cast(self.frequencies[subsystem_id]+anhtm, self.cdtype)*tf.cast(t, self.cdtype))
                 
                 for coupling_type, coupling in couplings.items():
                     if numpy.any(numpy.abs(coupling) > 0.0):
-                        phase = tf.cos(2*pi*tf.cast(c['carrier'], self.cdtype)*tf.cast(t, self.cdtype))
+                        phase = tf.cos(tf.cast(c['carrier'], self.cdtype)*tf.cast(t, self.cdtype))
                         constant = tf.cast(envelope_value, self.cdtype)*phase*tf.cast(coupling, self.cdtype)
                         amx = self.am_d2(x,ax=subsystem_id)*phasem
                         apx = self.ap_d2(x,ax=subsystem_id)*phasep
@@ -338,7 +359,7 @@ class TransmonQED:
                     anh_shape = [1]*len(x.shape)
                     anh_shape[subsystem_id] = self.d[subsystem_id]
                     anhm = tf.reshape(self.anharmonicities[subsystem_id]*tf.range(0,self.d[subsystem_id], dtype=self.rdtype),   anh_shape)
-                    phasem = tf.exp(-2*pi*1j*tf.cast(self.frequencies[subsystem_id]+anhm, self.cdtype)*tf.cast(t, self.cdtype))
+                    phasem = tf.exp(-1j*tf.cast(self.frequencies[subsystem_id]+anhm, self.cdtype)*tf.cast(t, self.cdtype))
                     op  = numpy.sqrt(rate)*self.am(x, ax=subsystem_id)*phasem
                     expect = 2*tf.real(tf.reduce_sum(tf.conj(x)*op, axis=[i for i in range(len(self.d))]))
                     measurement = (tf.reshape(quantum_noise[:,homodyne_decoherence_id], (-1,))/numpy.sqrt(self.dt) + expect) # measurement_record
@@ -393,7 +414,7 @@ class TransmonQED:
         
         self.expectation_fetch_order = [e for e in expectations.keys()]
         expectations = [expectations[e] for e in self.expectation_fetch_order]
-        results = [x]+expectations
+        results = expectations
         if mode=='vec':
             self.measurement_fetch_order = [m for m in J_average.keys()]
             measurements = [J_average[m] for m in self.measurement_fetch_order]
@@ -406,15 +427,16 @@ class TransmonQED:
         return tf.Variable(tf.cast(tf.sparse_tensor_to_dense(tf.SparseTensor(gi, gv, self.d+[self.ntraj])), self.cdtype))
        
     
-    def set_initial_pure_state(self, gi, gv):
+    def set_initial_pure_state(self, gi, gv, mat=True):
         with tf.Session() as sess:
             x = tf.Variable(tf.cast(tf.sparse_tensor_to_dense(tf.SparseTensor(gi, gv, self.d+[self.ntraj])), self.cdtype), name='initial_pure_state_tensor')
             sess.run(x.initializer)
             self.initial_state_vec = tf.Variable(sess.run(x), name='initial_pure_state_vec_variable')
             sess.run(self.initial_state_vec.initializer)
-            x_flat1 = tf.reshape(x, [numpy.prod(self.d), 1, self.ntraj])
-            x_flat2 = tf.reshape(x, [1, numpy.prod(self.d), self.ntraj])
-            self.initial_state_mat = tf.Variable(sess.run(tf.reshape(x_flat1*tf.conj(x_flat2), self.d+self.d+[self.ntraj])), name='initial_pure_state_mat_variable')
+            if mat:
+                x_flat1 = tf.reshape(x, [numpy.prod(self.d), 1, self.ntraj])
+                x_flat2 = tf.reshape(x, [1, numpy.prod(self.d), self.ntraj])
+                self.initial_state_mat = tf.Variable(sess.run(tf.reshape(x_flat1*tf.conj(x_flat2), self.d+self.d+[self.ntraj])), name='initial_pure_state_mat_variable')
             #sess.run(self.initial_state_mat.initializer)
         
     #def set_simulation_parameters(self):
@@ -458,7 +480,7 @@ class TransmonQED:
     def downsample(self, measurement, rf, t):
         if measurement['unmix']:
             time_rf = numpy.reshape(numpy.arange(self.minibatch)*self.dt+t, (self.minibatch, 1))
-            prod = (rf * numpy.exp(2*numpy.pi*1j*measurement['unmix_reference']*time_rf)).T
+            prod = (rf * numpy.exp(1j*measurement['unmix_reference']*time_rf)).T
             #print (prod.shape)
             iq_cmplx = numpy.mean(numpy.reshape(prod, (self.ntraj, int(self.minibatch*(self.dt*measurement['sample_rate'])), 
                                                        int(1/(self.dt*measurement['sample_rate'])))), axis=2).T
@@ -542,7 +564,7 @@ class TransmonQED:
         
         iteration = self.odeint_iteration(x, t, noise_instant, mode=mode)
         
-        for t_id, tit in enumerate(tsteps):
+        for t_id, tit in enumerate(tqdm(tsteps)):
             # check if we are entering new noise/resample minibatch
             if not (t_id % self.minibatch):
                 #regenerate noise
@@ -550,16 +572,16 @@ class TransmonQED:
                 
             step = sess.run(iteration, feed_dict={t:tit, noise_instant:noise_realization[:,:,t_id%self.minibatch]})
             #, jumps_new, jump_proba, masks_new, x_jumped = sess.run(iteration, feed_dict={t:tit})
-            psi_new = step[0]
+            #psi_new = step[0]
             
             for expectation_id, expectation in enumerate(self.expectation_fetch_order):
                 #print (step[expectation_id+1])
                 #print (expectations_minibatch[expectation][t_id % self.minibatch])
-                expectations_minibatch[expectation][t_id % self.minibatch] = step[expectation_id+1]
+                expectations_minibatch[expectation][t_id % self.minibatch] = step[expectation_id]
             if mode != 'mat' and mode != 'mat_pure':
                 for measurement_id, measurement in enumerate(self.measurement_fetch_order):
                     measurements_minibatch[measurement][t_id % self.minibatch] = \
-                        step[measurement_id+len(self.expectation_fetch_order)+1]
+                        step[measurement_id+len(self.expectation_fetch_order)]
             # old expectation code
             #expectations[:,t_id,:] = expectations_new
             # new expectation code
